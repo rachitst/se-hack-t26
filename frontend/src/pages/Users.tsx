@@ -1,98 +1,244 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Filter, ChevronDown, MoreVertical, Edit2, Trash2, UserPlus, Shield, X, UserCog, UserCheck } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, UserPlus, UserCog, UserCheck, Wifi, WifiOff } from 'lucide-react';
 import { userApi, warehouseApi } from '../services/api';
+import { socketService } from '../services/socket';
 import Button from '../components/ui/Button';
 import Dialog from '../components/ui/Dialog';
-import { User } from '../types/user';
 import Badge from '../components/ui/Badge';
+import { toast } from 'react-hot-toast';
+import { User } from '../types/user';
+import { useDispatch, useSelector } from 'react-redux';
+import { addUser, updateUser, deleteUser, setUsers, setLoading, setError } from '../redux/usersSlice';
+import { RootState } from '../redux/store';
 
 const UsersPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
   const [isEditUserOpen, setIsEditUserOpen] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [users, setUsers] = useState<User[]>([]);
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [warehouses, setWarehouses] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { users = [], loading = false, error = null } = useSelector((state: RootState) => state.users || {});
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [warehouseFilter, setWarehouseFilter] = useState<string>('all');
+  const [newUser, setNewUser] = useState<Partial<User>>({
+    username: '',
+    email: '',
+    role: 'user',
+    warehouse_id: undefined,
+  });
+  const [isConnected, setIsConnected] = useState(false);
+  const [socketError, setSocketError] = useState<string | null>(null);
+  const dispatch = useDispatch();
 
+  // Fetch initial data
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchInitialData = async () => {
       try {
-        setLoading(true);
-        setError(null);
-        const [usersResponse, warehousesResponse] = await Promise.all([
-          userApi.getUsers(),
-          warehouseApi.getWarehouses()
+        dispatch(setLoading(true));
+        dispatch(setError(null));
+
+        // Fetch warehouses and users in parallel
+        const [warehousesResponse, usersResponse] = await Promise.all([
+          warehouseApi.getWarehouses(),
+          userApi.getUsers()
         ]);
-        setUsers(usersResponse.data);
-        setWarehouses(warehousesResponse.data);
+
+        // Handle warehouses response
+        if (warehousesResponse.data.success) {
+          console.log('Warehouses fetched:', warehousesResponse.data.data);
+          setWarehouses(warehousesResponse.data.data || []);
+        } else {
+          console.error('Failed to fetch warehouses:', warehousesResponse.data.message);
+          toast.error('Failed to fetch warehouses');
+        }
+
+        // Handle users response
+        if (usersResponse.data.success) {
+          console.log('Users fetched:', usersResponse.data.data);
+          dispatch(setUsers(usersResponse.data.data || []));
+        } else {
+          console.error('Failed to fetch users:', usersResponse.data.message);
+          dispatch(setError(usersResponse.data.message || 'Failed to fetch users'));
+          toast.error(usersResponse.data.message || 'Failed to fetch users');
+        }
       } catch (err: any) {
-        console.error('Error fetching data:', err);
-        setError(err.message || 'Failed to fetch data');
+        console.error('Error fetching initial data:', err);
+        dispatch(setError(err.message || 'Failed to fetch data'));
+        toast.error('Failed to fetch data');
       } finally {
-        setLoading(false);
+        dispatch(setLoading(false));
       }
     };
 
-    fetchData();
-  }, []);
+    fetchInitialData();
+  }, [dispatch]);
 
-  const filteredUsers = users.filter(user => {
-    if (!user) return false;
-    
-    const matchesSearch = (
-      (user.username?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-      (user.email?.toLowerCase() || '').includes(searchTerm.toLowerCase())
-    );
-    
-    const matchesRole = roleFilter === 'all' || user.role === roleFilter;
-    const matchesWarehouse = warehouseFilter === 'all' || user.warehouse_id === warehouseFilter;
-    
-    return matchesSearch && matchesRole && matchesWarehouse;
-  });
+  // Socket setup
+  useEffect(() => {
+    const setupSocket = () => {
+      try {
+        socketService.connect();
 
-  const handleAddUser = async (userData: any) => {
+        socketService.on('connect', () => {
+          setIsConnected(true);
+          setSocketError(null);
+        });
+
+        socketService.on('disconnect', () => {
+          setIsConnected(false);
+        });
+
+        socketService.on('connect_error', (error) => {
+          setSocketError('Connection error. Retrying...');
+          setIsConnected(false);
+        });
+
+        // User event listeners
+        socketService.on('user_created', (newUser: User) => {
+          dispatch(addUser(newUser));
+          toast.success('User created successfully');
+        });
+
+        socketService.on('user_updated', (updatedUser: User) => {
+          dispatch(updateUser(updatedUser));
+          toast.success('User updated successfully');
+        });
+
+        socketService.on('user_deleted', (userId: string) => {
+          dispatch(deleteUser(userId));
+          toast.success('User deleted successfully');
+        });
+
+        return () => {
+          socketService.off('connect', () => {});
+          socketService.off('disconnect', () => {});
+          socketService.off('connect_error', () => {});
+          socketService.off('user_created', (newUser: User) => {});
+          socketService.off('user_updated', (updatedUser: User) => {});
+          socketService.off('user_deleted', (userId: string) => {});
+        };
+      } catch (error) {
+        console.error('Error setting up socket:', error);
+        setSocketError('Failed to set up socket connection');
+      }
+    };
+
+    const cleanup = setupSocket();
+    return () => {
+      cleanup?.();
+      socketService.disconnect();
+    };
+  }, [dispatch]);
+
+  // Handlers
+  const handleAddUser = async () => {
+    if (!newUser.username || !newUser.email || !newUser.role) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
+
     try {
-      const response = await userApi.register(userData);
-      setUsers([...users, response.data.user]);
-      setIsAddUserOpen(false);
-    } catch (err) {
-      setError('Failed to add user');
-      console.error(err);
+      dispatch(setLoading(true));
+      const response = await userApi.register(newUser);
+      
+      if (response.data.success) {
+        if (isConnected) {
+          socketService.emit('create_user', response.data.data);
+        } else {
+          dispatch(addUser(response.data.data));
+          toast.success('User added successfully');
+        }
+        setIsAddUserOpen(false);
+        setNewUser({
+          username: '',
+          email: '',
+          role: 'user',
+          warehouse_id: undefined,
+        });
+      }
+    } catch (err: any) {
+      console.error('Error adding user:', err);
+      toast.error(err.response?.data?.message || 'Failed to add user');
+    } finally {
+      dispatch(setLoading(false));
     }
   };
 
-  const handleEditUser = async (id: string, userData: any) => {
+  const handleEditUser = async () => {
+    if (!selectedUser) return;
+
     try {
-      const response = await userApi.updateUser(id, userData);
-      setUsers(users.map(user => user._id === id ? response.data : user));
-      setIsEditUserOpen(false);
-    } catch (err) {
-      setError('Failed to update user');
-      console.error(err);
+      dispatch(setLoading(true));
+      const response = await userApi.updateUser(selectedUser._id, selectedUser);
+      
+      if (response.data.success) {
+        if (isConnected) {
+          socketService.emit('update_user', response.data.data);
+        } else {
+          dispatch(updateUser(response.data.data));
+          toast.success('User updated successfully');
+        }
+        setIsEditUserOpen(false);
+        setSelectedUser(null);
+      }
+    } catch (err: any) {
+      console.error('Error updating user:', err);
+      toast.error(err.response?.data?.message || 'Failed to update user');
+    } finally {
+      dispatch(setLoading(false));
     }
   };
 
-  const handleDeleteUser = async (id: string) => {
+  const handleDeleteUser = async () => {
+    if (!selectedUser) return;
+
     try {
-      await userApi.deleteUser(id);
-      setUsers(users.filter(user => user._id !== id));
-      setIsDeleteDialogOpen(false);
-    } catch (err) {
-      setError('Failed to delete user');
-      console.error(err);
+      dispatch(setLoading(true));
+      const response = await userApi.deleteUser(selectedUser._id);
+      
+      if (response.data.success) {
+        if (isConnected) {
+          socketService.emit('delete_user', selectedUser._id);
+        } else {
+          dispatch(deleteUser(selectedUser._id));
+          toast.success('User deleted successfully');
+        }
+        setIsDeleteDialogOpen(false);
+        setSelectedUser(null);
+      }
+    } catch (err: any) {
+      console.error('Error deleting user:', err);
+      toast.error(err.response?.data?.message || 'Failed to delete user');
+    } finally {
+      dispatch(setLoading(false));
     }
   };
 
-  const getWarehouseName = (warehouseId: string | null) => {
+  // Filter users
+  const filteredUsers = React.useMemo(() => {
+    console.log('Filtering users:', users);
+    return users.filter(user => {
+      if (!user) return false;
+      
+      const matchesSearch = (
+        (user.username?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+        (user.email?.toLowerCase() || '').includes(searchTerm.toLowerCase())
+      );
+      
+      const matchesRole = roleFilter === 'all' || user.role === roleFilter;
+      const matchesWarehouse = warehouseFilter === 'all' || user.warehouse_id === warehouseFilter;
+      
+      return matchesSearch && matchesRole && matchesWarehouse;
+    });
+  }, [users, searchTerm, roleFilter, warehouseFilter]);
+
+  // Helper function to get warehouse name
+  const getWarehouseName = React.useCallback((warehouseId: string | undefined) => {
     if (!warehouseId) return 'Unassigned';
     const warehouse = warehouses.find(w => w._id === warehouseId);
     return warehouse ? warehouse.name : 'Unknown Warehouse';
-  };
+  }, [warehouses]);
 
   const getRoleBadgeVariant = (role: string) => {
     switch (role) {
@@ -105,31 +251,51 @@ const UsersPage: React.FC = () => {
     }
   };
 
-  if (loading) return (
-    <div className="flex items-center justify-center min-h-screen">
-      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-600"></div>
-    </div>
-  );
-  
-  if (error) return (
-    <div className="flex items-center justify-center min-h-screen">
-      <div className="text-red-600 text-center">
-        <p className="text-lg font-medium">Error: {error}</p>
-        <p className="text-sm mt-2">Please try refreshing the page</p>
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-600"></div>
       </div>
-    </div>
-  );
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-red-600 text-center">
+          <p className="text-lg font-medium">Error: {error}</p>
+          <p className="text-sm mt-2">Please try refreshing the page</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 p-6">
       <div className="max-w-7xl mx-auto space-y-6">
+        {/* Connection Status */}
+        {socketError && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+            <WifiOff className="w-5 h-5 text-red-500" />
+            <p className="text-red-600">{socketError}</p>
+          </div>
+        )}
+        
         {/* Header Section */}
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm">
-          <div>
-            <h1 className="text-3xl font-bold text-slate-800">User Management</h1>
-            <p className="text-slate-500 mt-2">Manage and monitor user access and permissions</p>
+          <div className="flex items-center gap-4">
+            <div>
+              <h1 className="text-3xl font-bold text-slate-800">User Management</h1>
+              <p className="text-slate-500 mt-2">Manage and monitor user access and permissions</p>
+            </div>
+            <div className="flex items-center gap-2">
+              {isConnected ? (
+                <Wifi className="w-5 h-5 text-green-500" />
+              ) : (
+                <WifiOff className="w-5 h-5 text-red-500" />
+              )}
+            </div>
           </div>
-          
           <Button 
             variant="primary" 
             leftIcon={<UserPlus size={18} />}
@@ -182,7 +348,7 @@ const UsersPage: React.FC = () => {
             </div>
           </div>
         </div>
-        
+
         {/* Search and Filter Section */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
           <div className="flex flex-col md:flex-row justify-between gap-4">
@@ -209,8 +375,10 @@ const UsersPage: React.FC = () => {
                 className="px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white shadow-sm"
               >
                 <option value="all">All Roles</option>
+                <option value="admin">Admin</option>
                 <option value="manager">Manager</option>
                 <option value="staff">Staff</option>
+                <option value="user">User</option>
               </select>
               
               <select
@@ -299,70 +467,73 @@ const UsersPage: React.FC = () => {
         </div>
 
         {/* Add User Dialog */}
-        <Dialog isOpen={isAddUserOpen} onClose={() => setIsAddUserOpen(false)} title="Add New User">
+        <Dialog 
+          isOpen={isAddUserOpen} 
+          onClose={() => {
+            setIsAddUserOpen(false);
+            setNewUser({
+              username: '',
+              email: '',
+              role: 'user',
+              warehouse_id: undefined,
+            });
+          }}
+          title="Add New User"
+        >
           <form onSubmit={(e) => {
             e.preventDefault();
-            const formData = new FormData(e.currentTarget);
-            handleAddUser({
-              username: formData.get('username'),
-              email: formData.get('email'),
-              password: formData.get('password'),
-              role: formData.get('role'),
-              warehouse_id: formData.get('warehouse')
-            });
+            handleAddUser();
           }}>
             <div className="space-y-6">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Username</label>
                 <input
                   type="text"
-                  name="username"
                   required
                   className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  placeholder="Enter username"
+                  value={newUser.username}
+                  onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
                 <input
                   type="email"
-                  name="email"
                   required
                   className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  placeholder="Enter email"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
-                <input
-                  type="password"
-                  name="password"
-                  required
-                  className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  placeholder="Enter password"
+                  value={newUser.email}
+                  onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Role</label>
                 <select 
-                  name="role" 
-                  required 
+                  required
                   className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  value={newUser.role || 'user'}
+                  onChange={(e) => {
+                    const role = e.target.value as 'user' | 'manager' | 'staff' | 'admin';
+                    setNewUser({ ...newUser, role });
+                  }}
                 >
-                  <option value="">Select a role</option>
+                  <option value="user">User</option>
+                  <option value="admin">Admin</option>
                   <option value="manager">Manager</option>
                   <option value="staff">Staff</option>
                 </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Warehouse</label>
-                <select 
-                  name="warehouse" 
+                <select
                   className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  value={newUser.warehouse_id || ''}
+                  onChange={(e) => setNewUser({ ...newUser, warehouse_id: e.target.value || undefined })}
                 >
-                  <option value="">Unassigned</option>
+                  <option value="">Select Warehouse</option>
                   {warehouses.map(warehouse => (
-                    <option key={warehouse._id} value={warehouse._id}>{warehouse.name}</option>
+                    <option key={warehouse._id} value={warehouse._id}>
+                      {warehouse.name}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -387,68 +558,79 @@ const UsersPage: React.FC = () => {
         </Dialog>
 
         {/* Edit User Dialog */}
-        <Dialog isOpen={isEditUserOpen} onClose={() => setIsEditUserOpen(false)} title="Edit User">
+        <Dialog 
+          isOpen={isEditUserOpen} 
+          onClose={() => {
+            setIsEditUserOpen(false);
+            setSelectedUser(null);
+          }}
+          title="Edit User"
+        >
           {selectedUser && (
             <form onSubmit={(e) => {
               e.preventDefault();
-              const formData = new FormData(e.currentTarget);
-              handleEditUser(selectedUser._id, {
-                username: formData.get('username'),
-                email: formData.get('email'),
-                role: formData.get('role'),
-                warehouse_id: formData.get('warehouse')
-              });
+              handleEditUser();
             }}>
               <div className="space-y-6">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Username</label>
                   <input
                     type="text"
-                    name="username"
-                    defaultValue={selectedUser.username}
                     required
                     className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    value={selectedUser.username}
+                    onChange={(e) => setSelectedUser({ ...selectedUser, username: e.target.value })}
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
                   <input
                     type="email"
-                    name="email"
-                    defaultValue={selectedUser.email}
                     required
                     className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    value={selectedUser.email}
+                    onChange={(e) => setSelectedUser({ ...selectedUser, email: e.target.value })}
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Role</label>
                   <select 
-                    name="role" 
-                    defaultValue={selectedUser.role} 
                     required 
                     className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    value={selectedUser.role}
+                    onChange={(e) => {
+                      const role = e.target.value as 'user' | 'manager' | 'staff' | 'admin';
+                      setSelectedUser({ ...selectedUser, role });
+                    }}
                   >
+                    <option value="user">User</option>
+                    <option value="admin">Admin</option>
                     <option value="manager">Manager</option>
                     <option value="staff">Staff</option>
                   </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Warehouse</label>
-                  <select 
-                    name="warehouse" 
-                    defaultValue={selectedUser?.warehouse_id || ''} 
+                  <select
                     className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    value={selectedUser.warehouse_id || ''}
+                    onChange={(e) => setSelectedUser({ ...selectedUser, warehouse_id: e.target.value || undefined })}
                   >
-                    <option value="">Unassigned</option>
+                    <option value="">Select Warehouse</option>
                     {warehouses.map(warehouse => (
-                      <option key={warehouse._id} value={warehouse._id}>{warehouse.name}</option>
+                      <option key={warehouse._id} value={warehouse._id}>
+                        {warehouse.name}
+                      </option>
                     ))}
                   </select>
                 </div>
                 <div className="flex justify-end space-x-3 pt-4">
                   <Button 
                     variant="outline" 
-                    onClick={() => setIsEditUserOpen(false)}
+                    onClick={() => {
+                      setIsEditUserOpen(false);
+                      setSelectedUser(null);
+                    }}
                     className="px-6"
                   >
                     Cancel
@@ -467,7 +649,14 @@ const UsersPage: React.FC = () => {
         </Dialog>
 
         {/* Delete User Dialog */}
-        <Dialog isOpen={isDeleteDialogOpen} onClose={() => setIsDeleteDialogOpen(false)} title="Delete User">
+        <Dialog 
+          isOpen={isDeleteDialogOpen} 
+          onClose={() => {
+            setIsDeleteDialogOpen(false);
+            setSelectedUser(null);
+          }}
+          title="Delete User"
+        >
           {selectedUser && (
             <div className="space-y-6">
               <div className="flex items-center justify-center w-16 h-16 mx-auto bg-red-100 rounded-full">
@@ -483,14 +672,17 @@ const UsersPage: React.FC = () => {
               <div className="flex justify-end space-x-3 pt-4">
                 <Button 
                   variant="outline" 
-                  onClick={() => setIsDeleteDialogOpen(false)}
+                  onClick={() => {
+                    setIsDeleteDialogOpen(false);
+                    setSelectedUser(null);
+                  }}
                   className="px-6"
                 >
                   Cancel
                 </Button>
                 <Button 
                   variant="error" 
-                  onClick={() => handleDeleteUser(selectedUser._id)}
+                  onClick={handleDeleteUser}
                   className="px-6 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800"
                 >
                   Delete

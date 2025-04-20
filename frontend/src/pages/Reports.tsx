@@ -217,19 +217,19 @@ const Reports: React.FC = () => {
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Header Section */}
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm">
-          <div>
+        <div>
             <h1 className="text-3xl font-bold text-slate-800">Reports & Analytics</h1>
             <p className="text-slate-500 mt-2">Generate and manage reports for your organization</p>
-          </div>
+        </div>
           
-          <Button 
-            variant="primary" 
+        <Button 
+          variant="primary"
             leftIcon={<Plus size={18} />}
             className="w-full lg:w-auto bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800"
-          >
-            New Report
-          </Button>
-        </div>
+        >
+          New Report
+        </Button>
+      </div>
 
         {/* Stats Section */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -293,35 +293,35 @@ const Reports: React.FC = () => {
           <div className="flex flex-col md:flex-row justify-between gap-4">
             <div className="relative flex-1 max-w-md">
               <div className="relative">
-                <input
-                  type="text"
-                  placeholder="Search reports..."
+          <input
+            type="text"
+            placeholder="Search reports..."
                   className="pl-12 pr-4 py-3 w-full border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white shadow-sm"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
                 <Search
                   size={20}
                   className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
                 />
               </div>
-            </div>
+        </div>
             
             <div className="flex items-center gap-3">
-              <select
-                value={filterType}
-                onChange={(e) => setFilterType(e.target.value)}
+          <select
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value)}
                 className="px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white shadow-sm"
-              >
-                <option value="all">All Types</option>
-                <option value="financial">Financial</option>
-                <option value="inventory">Inventory</option>
-                <option value="performance">Performance</option>
-                <option value="security">Security</option>
-              </select>
-            </div>
-          </div>
+          >
+            <option value="all">All Types</option>
+            <option value="financial">Financial</option>
+            <option value="inventory">Inventory</option>
+            <option value="performance">Performance</option>
+            <option value="security">Security</option>
+          </select>
         </div>
+      </div>
+              </div>
 
         {/* Reports Table */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
@@ -338,7 +338,7 @@ const Reports: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredReports.map((report) => (
+                  {filteredReports.map((report) => (
                   <tr key={report.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-semibold text-slate-800">{report.name}</div>
@@ -356,13 +356,13 @@ const Reports: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center text-slate-600">
-                        {getFormatIcon(report.format)}
+                          {getFormatIcon(report.format)}
                         <span className="ml-2 text-sm font-medium">{report.format.toUpperCase()}</span>
-                      </div>
+                        </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <div className="flex items-center gap-2">
-                        <button
+                          <button 
                           onClick={() => handleDownload(report)}
                           disabled={isDownloading === report.id}
                           className={`p-2 rounded-lg transition-colors ${
@@ -377,9 +377,9 @@ const Reports: React.FC = () => {
                           ) : (
                             <Download size={18} />
                           )}
-                        </button>
+                          </button>
                         
-                      </div>
+                        </div>
                     </td>
                   </tr>
                 ))}
@@ -391,10 +391,10 @@ const Reports: React.FC = () => {
         {/* Error Dialog */}
         {error && (
           <Dialog isOpen={!!error} onClose={() => setError(null)} title="Error">
-            <div className="space-y-6">
+        <div className="space-y-6">
               <div className="flex items-center justify-center w-16 h-16 mx-auto bg-red-100 rounded-full">
                 <AlertCircle className="w-8 h-8 text-red-600" />
-              </div>
+                    </div>
               <div className="text-center">
                 <p className="text-slate-600">{error}</p>
               </div>
@@ -407,7 +407,7 @@ const Reports: React.FC = () => {
                   Close
                 </Button>
               </div>
-            </div>
+        </div>
           </Dialog>
         )}
       </div>

@@ -36,6 +36,22 @@ const productSchema = new mongoose.Schema({
     required: true,
     min: 0
   },
+  quantity: {
+    type: Number,
+    required: true,
+    default: 0,
+    min: 0
+  },
+  warehouse: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Warehouse',
+    required: true
+  },
+  status: {
+    type: String,
+    enum: ['active', 'inactive', 'low_stock'],
+    default: 'active'
+  },
   expiryDate: {
     type: Date
   },

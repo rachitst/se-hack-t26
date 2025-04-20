@@ -1,17 +1,16 @@
 export interface Product {
-  id: string;
+  _id: string;
   name: string;
   sku: string;
   category: string;
+  price: number;
   quantity: number;
+  minQuantity: number;
+  unit: string;
   warehouse: string;
-  location: string;
-  minStock: number;
-  maxStock: number;
-  unitCost: number;
-  totalValue: number;
-  status: 'in-stock' | 'low-stock' | 'out-of-stock' | 'expiring';
+  status: 'active' | 'inactive' | 'low_stock';
+  description?: string;
   expiryDate?: string;
-  lastReceived: string;
-  supplier: string;
+  createdAt?: string;
+  updatedAt?: string;
 }

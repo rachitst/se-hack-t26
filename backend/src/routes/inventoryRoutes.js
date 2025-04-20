@@ -3,14 +3,25 @@ const router = express.Router();
 const Inventory = require('../models/Inventory');
 const Product = require('../models/Product');
 const { body, validationResult } = require('express-validator');
+const StockMovement = require('../models/StockMovement');
+const { io } = require('../index');
+
+// Helper function for consistent response format
+const sendResponse = (res, data, success = true, message = '') => {
+  res.status(200).json({
+    success,
+    data,
+    message
+  });
+};
 
 // Get all products
-router.get('/products', async (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const products = await Product.find().sort({ createdAt: -1 });
-    res.json(products);
+    const products = await Product.find();
+    sendResponse(res, products);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendResponse(res, null, false, err.message);
   }
 });
 
@@ -18,72 +29,56 @@ router.get('/products', async (req, res) => {
 router.get('/products/:id', async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
-    if (!product) return res.status(404).json({ message: 'Product not found' });
-    res.json(product);
+    if (!product) {
+      return sendResponse(res, null, false, 'Product not found');
+    }
+    sendResponse(res, product);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendResponse(res, null, false, err.message);
   }
 });
 
-// Create product
-router.post('/products', [
-  body('name').notEmpty().trim(),
-  body('sku').notEmpty().trim(),
-  body('category').notEmpty().trim(),
-  body('price').isNumeric().isFloat({ min: 0 }),
-  body('unit').notEmpty().trim(),
-  body('minQuantity').isNumeric().isInt({ min: 0 })
-], async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
-
+// Create new product
+router.post('/', async (req, res) => {
   try {
     const product = new Product(req.body);
-    await product.save();
-    res.status(201).json(product);
+    const newProduct = await product.save();
+    io.emit('inventory:created', newProduct);
+    sendResponse(res, newProduct, true, 'Product created successfully');
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    sendResponse(res, null, false, err.message);
   }
 });
 
 // Update product
-router.put('/products/:id', [
-  body('name').optional().trim(),
-  body('sku').optional().trim(),
-  body('category').optional().trim(),
-  body('price').optional().isNumeric().isFloat({ min: 0 }),
-  body('unit').optional().trim(),
-  body('minQuantity').optional().isNumeric().isInt({ min: 0 })
-], async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
-
+router.put('/:id', async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id);
-    if (!product) return res.status(404).json({ message: 'Product not found' });
-
-    Object.assign(product, req.body);
-    await product.save();
-    res.json(product);
+    const updatedProduct = await Product.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true }
+    );
+    if (!updatedProduct) {
+      return sendResponse(res, null, false, 'Product not found');
+    }
+    io.emit('inventory:updated', updatedProduct);
+    sendResponse(res, updatedProduct, true, 'Product updated successfully');
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    sendResponse(res, null, false, err.message);
   }
 });
 
 // Delete product
-router.delete('/products/:id', async (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id);
-    if (!product) return res.status(404).json({ message: 'Product not found' });
-
-    await product.remove();
-    res.json({ message: 'Product deleted' });
+    const deletedProduct = await Product.findByIdAndDelete(req.params.id);
+    if (!deletedProduct) {
+      return sendResponse(res, null, false, 'Product not found');
+    }
+    io.emit('inventory:deleted', { _id: req.params.id });
+    sendResponse(res, null, true, 'Product deleted successfully');
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendResponse(res, null, false, err.message);
   }
 });
 
@@ -93,9 +88,9 @@ router.get('/', async (req, res) => {
     const inventory = await Inventory.find()
       .populate('warehouse', 'name location')
       .populate('product', 'name sku category price');
-    res.json(inventory);
+    sendResponse(res, inventory);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendResponse(res, null, false, err.message);
   }
 });
 
@@ -105,9 +100,9 @@ router.get('/warehouse/:warehouseId', async (req, res) => {
     const inventory = await Inventory.find({ warehouse: req.params.warehouseId })
       .populate('product', 'name sku category price')
       .populate('warehouse', 'name location');
-    res.json(inventory);
+    sendResponse(res, inventory);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendResponse(res, null, false, err.message);
   }
 });
 
@@ -117,10 +112,12 @@ router.get('/:id', async (req, res) => {
     const inventory = await Inventory.findById(req.params.id)
       .populate('warehouse', 'name location')
       .populate('product', 'name sku category price');
-    if (!inventory) return res.status(404).json({ message: 'Inventory item not found' });
-    res.json(inventory);
+    if (!inventory) {
+      return sendResponse(res, null, false, 'Inventory item not found');
+    }
+    sendResponse(res, inventory);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendResponse(res, null, false, err.message);
   }
 });
 
@@ -135,15 +132,15 @@ router.post('/', [
 ], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
+    return sendResponse(res, null, false, errors.array()[0].msg);
   }
 
   try {
     const inventory = new Inventory(req.body);
     await inventory.save();
-    res.status(201).json(inventory);
+    sendResponse(res, inventory, true, 'Inventory item created successfully');
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    sendResponse(res, null, false, err.message);
   }
 });
 
@@ -151,14 +148,16 @@ router.post('/', [
 router.put('/:id', async (req, res) => {
   try {
     const inventory = await Inventory.findById(req.params.id);
-    if (!inventory) return res.status(404).json({ message: 'Inventory item not found' });
+    if (!inventory) {
+      return sendResponse(res, null, false, 'Inventory item not found');
+    }
 
     Object.assign(inventory, req.body);
     inventory.lastUpdated = new Date();
     await inventory.save();
-    res.json(inventory);
+    sendResponse(res, inventory, true, 'Inventory item updated successfully');
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    sendResponse(res, null, false, err.message);
   }
 });
 
@@ -168,19 +167,21 @@ router.patch('/:id/quantity', [
 ], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
+    return sendResponse(res, null, false, errors.array()[0].msg);
   }
 
   try {
     const inventory = await Inventory.findById(req.params.id);
-    if (!inventory) return res.status(404).json({ message: 'Inventory item not found' });
+    if (!inventory) {
+      return sendResponse(res, null, false, 'Inventory item not found');
+    }
 
     inventory.quantity = req.body.quantity;
     inventory.lastUpdated = new Date();
     await inventory.save();
-    res.json(inventory);
+    sendResponse(res, inventory, true, 'Quantity updated successfully');
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    sendResponse(res, null, false, err.message);
   }
 });
 
@@ -188,12 +189,48 @@ router.patch('/:id/quantity', [
 router.delete('/:id', async (req, res) => {
   try {
     const inventory = await Inventory.findById(req.params.id);
-    if (!inventory) return res.status(404).json({ message: 'Inventory item not found' });
+    if (!inventory) {
+      return sendResponse(res, null, false, 'Inventory item not found');
+    }
 
     await inventory.remove();
-    res.json({ message: 'Inventory item deleted' });
+    sendResponse(res, null, true, 'Inventory item deleted successfully');
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendResponse(res, null, false, err.message);
+  }
+});
+
+// Create a stock transfer
+router.post('/transfers', async (req, res) => {
+  try {
+    const { fromWarehouse, toWarehouse, productName, quantity, description } = req.body;
+
+    // Create stock movement record
+    const stockMovement = new StockMovement({
+      productName,
+      type: 'transfer',
+      quantity,
+      fromWarehouse,
+      toWarehouse,
+      description
+    });
+
+    await stockMovement.save();
+
+    // Emit socket event
+    io.emit('stock:movement', {
+      _id: stockMovement._id,
+      productName,
+      type: 'transfer',
+      quantity,
+      fromWarehouse,
+      toWarehouse,
+      createdAt: stockMovement.createdAt
+    });
+
+    sendResponse(res, stockMovement, true, 'Stock transfer created successfully');
+  } catch (error) {
+    sendResponse(res, null, false, error.message);
   }
 });
 

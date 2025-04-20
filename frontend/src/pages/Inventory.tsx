@@ -1,15 +1,46 @@
 import React, { useState, useEffect } from 'react';
-import { Package, AlertCircle, Clock, TrendingUp, Plus, Search, Filter, ChevronDown, Edit2, Trash2 } from 'lucide-react';
-import { inventoryApi } from '../services/api';
+import { Package, AlertCircle, Clock, TrendingUp, Plus, Search, Edit2, Trash2 } from 'lucide-react';
+import { useDispatch, useSelector } from 'react-redux';
+import { toast } from 'react-hot-toast';
+import { RootState, AppDispatch } from '../store/store';
+import { 
+  setProducts, 
+  addProduct, 
+  updateProduct, 
+  deleteProduct, 
+  setLoading, 
+  setError 
+} from '../store/inventorySlice';
+import { inventoryApi, warehouseApi } from '../services/api';
+import { socketService } from '../services/socket';
+import { Product } from '../types/product';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import Dialog from '../components/ui/Dialog';
-import { Product } from '../types/product';
+import { Table, TableBody, TableCell, TableHead, TableRow } from '../components/ui/Table';
+import { IconButton } from '../components/ui/IconButton';
+import ErrorBoundary from '../components/ErrorBoundary';
 
-const Inventory: React.FC = () => {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+interface NewProductForm {
+  name: string;
+  price: string;
+  quantity: string;
+  minQuantity: string;
+  category: string;
+  description: string;
+  sku: string;
+  unit: string;
+  warehouse: string;
+  status: string;
+}
+
+const InventoryContent: React.FC = () => {
+  const dispatch = useDispatch<AppDispatch>();
+  const inventoryState = useSelector((state: RootState) => state.inventory);
+  const products = Array.isArray(inventoryState.products) ? inventoryState.products : [];
+  const { loading, error } = inventoryState;
+  
+  // Local state
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -17,50 +48,176 @@ const Inventory: React.FC = () => {
   const [isEditProductOpen, setIsEditProductOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [newProduct, setNewProduct] = useState<NewProductForm>({
+    name: '',
+    price: '',
+    quantity: '',
+    minQuantity: '',
+    category: '',
+    description: '',
+    sku: '',
+    unit: '',
+    warehouse: '',
+    status: ''
+  });
+  const [warehouses, setWarehouses] = useState<any[]>([]);
 
+  // Fetch initial data
   useEffect(() => {
-    const fetchProducts = async () => {
+    const fetchInitialData = async () => {
       try {
-        setLoading(true);
-        setError(null);
-        const response = await inventoryApi.getProducts();
-        if (response.data) {
-          setProducts(response.data);
+        dispatch(setLoading(true));
+        const [productsResponse, warehousesResponse] = await Promise.all([
+          inventoryApi.getProducts(),
+          warehouseApi.getWarehouses()
+        ]);
+        
+        if (productsResponse.data.success) {
+          dispatch(setProducts(productsResponse.data.data || []));
         } else {
-          setError('No products found');
+          dispatch(setError(productsResponse.data.message));
+          toast.error(productsResponse.data.message);
         }
-      } catch (err: any) {
-        console.error('Error fetching products:', err);
-        setError(err.message || 'Failed to fetch products');
+
+        if (warehousesResponse.data.success) {
+          setWarehouses(warehousesResponse.data.data || []);
+        }
+      } catch (err) {
+        const errorMessage = 'Failed to fetch initial data';
+        dispatch(setError(errorMessage));
+        toast.error(errorMessage);
       } finally {
-        setLoading(false);
+        dispatch(setLoading(false));
       }
     };
 
+    fetchInitialData();
+  }, [dispatch]);
+
+  // Fetch products function
+  const fetchProducts = async () => {
+    try {
+      const response = await inventoryApi.getProducts();
+      if (response.data.success) {
+        dispatch(setProducts(response.data.data || []));
+      } else {
+        dispatch(setError(response.data.message));
+        toast.error(response.data.message);
+      }
+    } catch (err) {
+      console.error('Error fetching products:', err);
+      dispatch(setError('Failed to fetch products'));
+      toast.error('Failed to fetch products');
+    }
+  };
+
+  // Socket event handlers
+  useEffect(() => {
+    const handleProductCreate = async (newProduct: Product) => {
+      try {
+        await fetchProducts(); // Fetch latest data
+        toast.success('New product added');
+      } catch (err) {
+        console.error('Error handling product create:', err);
+      }
+    };
+
+    const handleProductUpdate = async (updatedProduct: Product) => {
+      try {
+        await fetchProducts(); // Fetch latest data
+        toast.success('Product updated');
+      } catch (err) {
+        console.error('Error handling product update:', err);
+      }
+    };
+
+    const handleProductDelete = async (deletedProduct: { _id: string }) => {
+      try {
+        await fetchProducts(); // Fetch latest data
+        toast.success('Product deleted');
+      } catch (err) {
+        console.error('Error handling product delete:', err);
+      }
+    };
+
+    const handleInventoryUpdate = async () => {
+      try {
+        await fetchProducts(); // Fetch latest data
+        toast.success('Inventory updated');
+      } catch (err) {
+        console.error('Error handling inventory update:', err);
+      }
+    };
+
+    // Subscribe to socket events
+    socketService.subscribe('inventory:created', handleProductCreate);
+    socketService.subscribe('inventory:updated', handleProductUpdate);
+    socketService.subscribe('inventory:deleted', handleProductDelete);
+    socketService.subscribe('inventory:updated', handleInventoryUpdate);
+
+    // Initial fetch
     fetchProducts();
-  }, []);
 
-  const totalItems = products.reduce((sum, product) => sum + (product.quantity || 0), 0);
-  const totalValue = products.reduce((sum, product) => sum + ((product.price || 0) * (product.quantity || 0)), 0);
-  const lowStockCount = products.filter(p => (p.quantity || 0) < (p.minQuantity || 0)).length;
-  const expiringCount = products.filter(p => p.expiryDate && new Date(p.expiryDate) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)).length;
+    // Set up periodic refresh
+    const refreshInterval = setInterval(fetchProducts, 30000); // Refresh every 30 seconds
 
-  const filteredProducts = products.filter(product => {
-    const matchesSearch = (
-      (product.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (product.sku || '').toLowerCase().includes(searchTerm.toLowerCase())
-    );
-    
-    const matchesCategory = categoryFilter === 'all' || product.category === categoryFilter;
-    const matchesStatus = statusFilter === 'all' || (
-      statusFilter === 'low-stock' ? (product.quantity || 0) < (product.minQuantity || 0) :
-      statusFilter === 'in-stock' ? (product.quantity || 0) >= (product.minQuantity || 0) :
-      true
-    );
-    
-    return matchesSearch && matchesCategory && matchesStatus;
-  });
+    return () => {
+      // Cleanup socket subscriptions
+      socketService.unsubscribe('inventory:created', handleProductCreate);
+      socketService.unsubscribe('inventory:updated', handleProductUpdate);
+      socketService.unsubscribe('inventory:deleted', handleProductDelete);
+      socketService.unsubscribe('inventory:updated', handleInventoryUpdate);
+      // Clear interval
+      clearInterval(refreshInterval);
+    };
+  }, [dispatch]);
 
+  // Calculate statistics with safe array operations
+  const calculateStats = () => {
+    try {
+      return {
+        totalItems: products.reduce((sum, product) => sum + (product?.quantity || 0), 0),
+        totalValue: products.reduce((sum, product) => sum + ((product?.price || 0) * (product?.quantity || 0)), 0),
+        lowStockCount: products.filter(p => (p?.quantity || 0) < (p?.minQuantity || 0)).length,
+        expiringCount: products.filter(p => 
+          p?.expiryDate && new Date(p.expiryDate) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+        ).length
+      };
+    } catch (err) {
+      console.error('Error calculating stats:', err);
+      return {
+        totalItems: 0,
+        totalValue: 0,
+        lowStockCount: 0,
+        expiringCount: 0
+      };
+    }
+  };
+
+  const { totalItems, totalValue, lowStockCount, expiringCount } = calculateStats();
+
+  // Filter products with safe array operations
+  const getFilteredProducts = () => {
+    try {
+      return products.filter((product) => {
+        if (!product) return false;
+        const matchesSearch = (
+          (product.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (product.sku || '').toLowerCase().includes(searchTerm.toLowerCase())
+        );
+        const matchesCategory = categoryFilter === 'all' || product.category === categoryFilter;
+        const matchesStatus = statusFilter === 'all' || product.status === statusFilter;
+        return matchesSearch && matchesCategory && matchesStatus;
+      });
+    } catch (err) {
+      console.error('Error filtering products:', err);
+      return [];
+    }
+  };
+
+  const filteredProducts = getFilteredProducts();
+
+  // Product status badge
   const getStatusBadge = (product: Product) => {
     if (!product.quantity) {
       return <Badge variant="error">Out of Stock</Badge>;
@@ -68,66 +225,125 @@ const Inventory: React.FC = () => {
       return <Badge variant="warning">Low Stock</Badge>;
     } else if (product.expiryDate && new Date(product.expiryDate) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)) {
       return <Badge variant="error">Expiring Soon</Badge>;
-    } else {
-      return <Badge variant="success">In Stock</Badge>;
     }
+    return <Badge variant="success">In Stock</Badge>;
   };
 
-  const handleAddProduct = async (productData: any) => {
+  // Handlers
+  const handleAddProduct = async () => {
+    if (!newProduct.name || !newProduct.price || !newProduct.quantity) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
+
     try {
+      const productData = {
+        name: newProduct.name,
+        price: parseFloat(newProduct.price),
+        quantity: parseInt(newProduct.quantity),
+        minQuantity: newProduct.minQuantity ? parseInt(newProduct.minQuantity) : undefined,
+        category: newProduct.category,
+        description: newProduct.description,
+        sku: newProduct.sku,
+        unit: newProduct.unit,
+        warehouse: newProduct.warehouse,
+        status: newProduct.status
+      };
+
       const response = await inventoryApi.createProduct(productData);
       if (response.data) {
-        setProducts([...products, response.data]);
+        dispatch(addProduct(response.data));
+        socketService.emit('inventory:create', response.data);
         setIsAddProductOpen(false);
-      } else {
-        setError('Failed to add product');
+        setNewProduct({
+          name: '',
+          price: '',
+          quantity: '',
+          minQuantity: '',
+          category: '',
+          description: '',
+          sku: '',
+          unit: '',
+          warehouse: '',
+          status: ''
+        });
+        toast.success('Product added successfully');
       }
-    } catch (err) {
-      setError('Failed to add product');
-      console.error(err);
+    } catch (error) {
+      console.error('Error creating product:', error);
+      toast.error('Failed to create product');
     }
   };
 
-  const handleEditProduct = async (id: string, productData: any) => {
+  const handleEditProduct = async () => {
+    if (!selectedProduct) return;
     try {
-      const response = await inventoryApi.updateProduct(id, productData);
+      const response = await inventoryApi.updateProduct(selectedProduct._id, selectedProduct);
       if (response.data) {
-        setProducts(products.map(product => product._id === id ? response.data : product));
+        dispatch(updateProduct(response.data));
+        socketService.emit('inventory:update', response.data);
         setIsEditProductOpen(false);
-      } else {
-        setError('Failed to update product');
+        setSelectedProduct(null);
+        toast.success('Product updated successfully');
       }
-    } catch (err) {
-      setError('Failed to update product');
-      console.error(err);
+    } catch (error) {
+      console.error('Error updating product:', error);
+      toast.error('Failed to update product');
     }
   };
 
-  const handleDeleteProduct = async (id: string) => {
+  const handleDeleteProduct = async (productToDelete: Product) => {
+    if (!productToDelete) return;
     try {
-      await inventoryApi.deleteProduct(id);
-      setProducts(products.filter(product => product._id !== id));
-      setIsDeleteDialogOpen(false);
-    } catch (err) {
-      setError('Failed to delete product');
-      console.error(err);
+      const response = await inventoryApi.deleteProduct(productToDelete._id);
+      if (response.data) {
+        dispatch(deleteProduct(productToDelete._id));
+        socketService.emit('inventory:delete', { _id: productToDelete._id });
+        setIsDeleteDialogOpen(false);
+        setSelectedProduct(null);
+        toast.success('Product deleted successfully');
+      }
+    } catch (error) {
+      console.error('Error deleting product:', error);
+      toast.error('Failed to delete product');
     }
   };
 
-  if (loading) return (
-    <div className="flex items-center justify-center min-h-screen">
-      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-600"></div>
-    </div>
-  );
-  
-  if (error) return (
-    <div className="flex items-center justify-center min-h-screen">
-      <div className="text-red-600 text-center">
-        <p className="text-lg font-medium">Error: {error}</p>
-        <p className="text-sm mt-2">Please try refreshing the page</p>
+  const loadDemoData = () => {
+    const defaultWarehouse = warehouses.length > 0 ? warehouses[0]._id : '';
+    setNewProduct({
+      name: 'Sample Product',
+      sku: 'DEMO-' + Math.floor(Math.random() * 10000),
+      category: 'Electronics',
+      price: '99.99',
+      quantity: '50',
+      minQuantity: '10',
+      unit: 'pcs',
+      warehouse: defaultWarehouse,
+      status: 'active',
+      description: 'This is a sample product description',
+    });
+  };
+
+  // Loading and error states
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-600"></div>
       </div>
-    </div>
-  );
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-red-600 text-center">
+          <p className="text-lg font-medium">Error: {error}</p>
+          <p className="text-sm mt-2">Please try refreshing the page</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 p-6">
@@ -138,7 +354,6 @@ const Inventory: React.FC = () => {
             <h1 className="text-3xl font-bold text-slate-800">Inventory Management</h1>
             <p className="text-slate-500 mt-2">Monitor and manage your inventory across all warehouses</p>
           </div>
-          
           <Button 
             variant="primary" 
             leftIcon={<Plus size={18} />}
@@ -201,7 +416,7 @@ const Inventory: React.FC = () => {
             </div>
           </div>
         </div>
-        
+
         {/* Search and Filter Section */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
           <div className="flex flex-col md:flex-row justify-between gap-4">
@@ -250,21 +465,21 @@ const Inventory: React.FC = () => {
         {/* Products Table */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Product</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">SKU</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Category</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Quantity</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Product</TableCell>
+                  <TableCell>SKU</TableCell>
+                  <TableCell>Category</TableCell>
+                  <TableCell>Quantity</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell>Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {filteredProducts.map((product) => (
-                  <tr key={product._id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-6 py-4 whitespace-nowrap">
+                  <TableRow key={product._id}>
+                    <TableCell>
                       <div className="flex items-center">
                         <div className="flex-shrink-0 h-10 w-10">
                           <div className="h-10 w-10 rounded-full bg-gradient-to-br from-indigo-100 to-indigo-200 flex items-center justify-center">
@@ -280,147 +495,106 @@ const Inventory: React.FC = () => {
                           </div>
                         </div>
                       </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
-                      {product.sku || 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
-                      {product.category || 'Uncategorized'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
-                      {product.quantity || 0} {product.unit || 'units'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {getStatusBadge(product)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    </TableCell>
+                    <TableCell>{product.sku || 'N/A'}</TableCell>
+                    <TableCell>{product.category || 'Uncategorized'}</TableCell>
+                    <TableCell>{product.quantity || 0} {product.unit || 'units'}</TableCell>
+                    <TableCell>{getStatusBadge(product)}</TableCell>
+                    <TableCell>
                       <div className="flex items-center gap-2">
-                        <button
+                        <IconButton
                           onClick={() => {
                             setSelectedProduct(product);
                             setIsEditProductOpen(true);
                           }}
-                          className="p-2 text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50 rounded-lg transition-colors"
                           title="Edit product"
                         >
                           <Edit2 size={18} />
-                        </button>
-                        <button
+                        </IconButton>
+                        <IconButton
                           onClick={() => {
                             setSelectedProduct(product);
                             setIsDeleteDialogOpen(true);
                           }}
-                          className="p-2 text-red-600 hover:text-red-900 hover:bg-red-50 rounded-lg transition-colors"
                           title="Delete product"
                         >
                           <Trash2 size={18} />
-                        </button>
+                        </IconButton>
                       </div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </div>
 
         {/* Add Product Dialog */}
-        <Dialog isOpen={isAddProductOpen} onClose={() => setIsAddProductOpen(false)} title="Add New Product">
+        <Dialog 
+          isOpen={isAddProductOpen} 
+          onClose={() => {
+            setIsAddProductOpen(false);
+            setNewProduct({
+              name: '',
+              price: '',
+              quantity: '',
+              minQuantity: '',
+              category: '',
+              description: '',
+              sku: '',
+              unit: '',
+              warehouse: '',
+              status: ''
+            });
+          }}
+          title="Add New Product"
+        >
           <form onSubmit={(e) => {
             e.preventDefault();
-            const formData = new FormData(e.currentTarget);
-            handleAddProduct({
-              name: formData.get('name'),
-              sku: formData.get('sku'),
-              category: formData.get('category'),
-              price: Number(formData.get('price')),
-              quantity: Number(formData.get('quantity')),
-              minQuantity: Number(formData.get('minQuantity')),
-              unit: formData.get('unit'),
-              expiryDate: formData.get('expiryDate')
-            });
+            handleAddProduct();
           }}>
             <div className="space-y-6">
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={loadDemoData}
+                  className="text-sm"
+                >
+                  Load Demo Data
+                </Button>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Product Name</label>
                 <input
                   type="text"
-                  name="name"
                   required
                   className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  placeholder="Enter product name"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">SKU</label>
-                <input
-                  type="text"
-                  name="sku"
-                  required
-                  className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  placeholder="Enter SKU"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Category</label>
-                <input
-                  type="text"
-                  name="category"
-                  required
-                  className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  placeholder="Enter category"
+                  value={newProduct.name}
+                  onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })}
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Price</label>
                 <input
                   type="number"
-                  name="price"
                   required
                   step="0.01"
                   min="0"
                   className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  placeholder="Enter price"
+                  value={newProduct.price}
+                  onChange={(e) => setNewProduct({ ...newProduct, price: e.target.value })}
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Quantity</label>
                 <input
                   type="number"
-                  name="quantity"
                   required
                   min="0"
                   className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  placeholder="Enter quantity"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Minimum Quantity</label>
-                <input
-                  type="number"
-                  name="minQuantity"
-                  required
-                  min="0"
-                  className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  placeholder="Enter minimum quantity"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Unit</label>
-                <input
-                  type="text"
-                  name="unit"
-                  required
-                  className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  placeholder="Enter unit (e.g., pcs, kg, etc.)"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Expiry Date (Optional)</label>
-                <input
-                  type="date"
-                  name="expiryDate"
-                  className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  value={newProduct.quantity}
+                  onChange={(e) => setNewProduct({ ...newProduct, quantity: e.target.value })}
                 />
               </div>
               <div className="flex justify-end space-x-3 pt-4">
@@ -444,110 +618,60 @@ const Inventory: React.FC = () => {
         </Dialog>
 
         {/* Edit Product Dialog */}
-        <Dialog isOpen={isEditProductOpen} onClose={() => setIsEditProductOpen(false)} title="Edit Product">
+        <Dialog 
+          isOpen={isEditProductOpen} 
+          onClose={() => {
+            setIsEditProductOpen(false);
+            setSelectedProduct(null);
+          }}
+          title="Edit Product"
+        >
           {selectedProduct && (
             <form onSubmit={(e) => {
               e.preventDefault();
-              const formData = new FormData(e.currentTarget);
-              handleEditProduct(selectedProduct._id, {
-                name: formData.get('name'),
-                sku: formData.get('sku'),
-                category: formData.get('category'),
-                price: Number(formData.get('price')),
-                quantity: Number(formData.get('quantity')),
-                minQuantity: Number(formData.get('minQuantity')),
-                unit: formData.get('unit'),
-                expiryDate: formData.get('expiryDate')
-              });
+              handleEditProduct();
             }}>
               <div className="space-y-6">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Product Name</label>
                   <input
                     type="text"
-                    name="name"
-                    defaultValue={selectedProduct.name}
                     required
                     className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">SKU</label>
-                  <input
-                    type="text"
-                    name="sku"
-                    defaultValue={selectedProduct.sku}
-                    required
-                    className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Category</label>
-                  <input
-                    type="text"
-                    name="category"
-                    defaultValue={selectedProduct.category}
-                    required
-                    className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    value={selectedProduct.name}
+                    onChange={(e) => setSelectedProduct({ ...selectedProduct, name: e.target.value })}
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Price</label>
                   <input
                     type="number"
-                    name="price"
-                    defaultValue={selectedProduct.price}
                     required
                     step="0.01"
                     min="0"
                     className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    value={selectedProduct.price}
+                    onChange={(e) => setSelectedProduct({ ...selectedProduct, price: parseFloat(e.target.value) })}
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Quantity</label>
                   <input
                     type="number"
-                    name="quantity"
-                    defaultValue={selectedProduct.quantity}
                     required
                     min="0"
                     className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Minimum Quantity</label>
-                  <input
-                    type="number"
-                    name="minQuantity"
-                    defaultValue={selectedProduct.minQuantity}
-                    required
-                    min="0"
-                    className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Unit</label>
-                  <input
-                    type="text"
-                    name="unit"
-                    defaultValue={selectedProduct.unit}
-                    required
-                    className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Expiry Date (Optional)</label>
-                  <input
-                    type="date"
-                    name="expiryDate"
-                    defaultValue={selectedProduct.expiryDate?.split('T')[0]}
-                    className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    value={selectedProduct.quantity}
+                    onChange={(e) => setSelectedProduct({ ...selectedProduct, quantity: parseInt(e.target.value) })}
                   />
                 </div>
                 <div className="flex justify-end space-x-3 pt-4">
                   <Button 
                     variant="outline" 
-                    onClick={() => setIsEditProductOpen(false)}
+                    onClick={() => {
+                      setIsEditProductOpen(false);
+                      setSelectedProduct(null);
+                    }}
                     className="px-6"
                   >
                     Cancel
@@ -566,7 +690,14 @@ const Inventory: React.FC = () => {
         </Dialog>
 
         {/* Delete Product Dialog */}
-        <Dialog isOpen={isDeleteDialogOpen} onClose={() => setIsDeleteDialogOpen(false)} title="Delete Product">
+        <Dialog 
+          isOpen={isDeleteDialogOpen} 
+          onClose={() => {
+            setIsDeleteDialogOpen(false);
+            setSelectedProduct(null);
+          }}
+          title="Delete Product"
+        >
           {selectedProduct && (
             <div className="space-y-6">
               <div className="flex items-center justify-center w-16 h-16 mx-auto bg-red-100 rounded-full">
@@ -582,14 +713,17 @@ const Inventory: React.FC = () => {
               <div className="flex justify-end space-x-3 pt-4">
                 <Button 
                   variant="outline" 
-                  onClick={() => setIsDeleteDialogOpen(false)}
+                  onClick={() => {
+                    setIsDeleteDialogOpen(false);
+                    setSelectedProduct(null);
+                  }}
                   className="px-6"
                 >
                   Cancel
                 </Button>
                 <Button 
                   variant="error" 
-                  onClick={() => handleDeleteProduct(selectedProduct._id)}
+                  onClick={() => handleDeleteProduct(selectedProduct)}
                   className="px-6 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800"
                 >
                   Delete
@@ -600,6 +734,14 @@ const Inventory: React.FC = () => {
         </Dialog>
       </div>
     </div>
+  );
+};
+
+const Inventory: React.FC = () => {
+  return (
+    <ErrorBoundary>
+      <InventoryContent />
+    </ErrorBoundary>
   );
 };
 

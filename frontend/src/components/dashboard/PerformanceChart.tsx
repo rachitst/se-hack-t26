@@ -1,152 +1,113 @@
 import React from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, AreaChart, Area, PieChart, Pie, Cell } from 'recharts';
-import Card, { CardHeader, CardContent } from '../ui/Card';
-import { warehouses } from '../../data/mockWarehouses';
+import { Line } from 'react-chartjs-2';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend
+} from 'chart.js';
 
-const PerformanceChart: React.FC = () => {
-  const data = warehouses.map(warehouse => ({
-    name: warehouse.name.split(' ')[0],
-    utilization: warehouse.utilization,
-    efficiency: warehouse.metrics.efficiency,
-    inbound: warehouse.metrics.inboundOrders,
-    outbound: warehouse.metrics.outboundOrders,
-  }));
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend
+);
 
-  const pieData = [
-    { name: 'In Stock', value: 75 },
-    { name: 'Low Stock', value: 15 },
-    { name: 'Out of Stock', value: 10 },
-  ];
+interface StockMovement {
+  _id: {
+    date: string;
+    type: string;
+  };
+  count: number;
+}
 
-  const COLORS = ['#4f46e5', '#818cf8', '#c7d2fe'];
+interface PerformanceChartProps {
+  data: StockMovement[];
+}
+
+const PerformanceChart: React.FC<PerformanceChartProps> = ({ data }) => {
+  // Group data by date and type
+  const groupedData = data.reduce((acc, movement) => {
+    const date = movement._id.date;
+    const type = movement._id.type;
+    if (!acc[date]) {
+      acc[date] = {
+        active: 0,
+        inactive: 0,
+        low_stock: 0
+      };
+    }
+    acc[date][type] = movement.count;
+    return acc;
+  }, {} as Record<string, Record<string, number>>);
+
+  const chartData = {
+    labels: Object.keys(groupedData),
+    datasets: [
+      {
+        label: 'Active Products',
+        data: Object.values(groupedData).map(d => d.active),
+        borderColor: 'rgb(99, 102, 241)',
+        backgroundColor: 'rgba(99, 102, 241, 0.5)',
+        tension: 0.1
+      },
+      {
+        label: 'Low Stock',
+        data: Object.values(groupedData).map(d => d.low_stock),
+        borderColor: 'rgb(239, 68, 68)',
+        backgroundColor: 'rgba(239, 68, 68, 0.5)',
+        tension: 0.1
+      },
+      {
+        label: 'Inactive',
+        data: Object.values(groupedData).map(d => d.inactive),
+        borderColor: 'rgb(156, 163, 175)',
+        backgroundColor: 'rgba(156, 163, 175, 0.5)',
+        tension: 0.1
+      }
+    ]
+  };
+
+  const options = {
+    responsive: true,
+    plugins: {
+      legend: {
+        position: 'top' as const,
+      },
+      title: {
+        display: true,
+        text: 'Product Status Over Time'
+      }
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        title: {
+          display: true,
+          text: 'Number of Products'
+        }
+      },
+      x: {
+        title: {
+          display: true,
+          text: 'Date'
+        }
+      }
+    }
+  };
 
   return (
-    <Card className="h-full">
-      <CardHeader className="flex justify-between items-center">
-        <div>
-          <h2 className="text-lg font-medium">Warehouse Performance</h2>
-          <p className="text-sm text-neutral-500">Stock utilization across warehouses</p>
-        </div>
-        <select className="text-sm bg-white border border-neutral-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
-          <option>Last 7 days</option>
-          <option>Last 30 days</option>
-          <option>Last 90 days</option>
-        </select>
-      </CardHeader>
-      <CardContent className="pt-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="h-[300px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="name" stroke="#6b7280" />
-                <YAxis stroke="#6b7280" />
-              <Tooltip
-                contentStyle={{
-                    backgroundColor: 'white',
-                    border: '1px solid #e5e7eb',
-                  borderRadius: '8px',
-                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                }}
-              />
-                <Bar dataKey="utilization" fill="#4f46e5" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="efficiency" fill="#818cf8" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-          <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="name" stroke="#6b7280" />
-                <YAxis stroke="#6b7280" />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'white',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '8px',
-                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                  }}
-                />
-                <Area type="monotone" dataKey="inbound" stroke="#4f46e5" fill="#4f46e5" fillOpacity={0.2} />
-                <Area type="monotone" dataKey="outbound" stroke="#818cf8" fill="#818cf8" fillOpacity={0.2} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={data}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="name" stroke="#6b7280" />
-                <YAxis stroke="#6b7280" />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'white',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '8px',
-                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                  }}
-                />
-                <Line type="monotone" dataKey="efficiency" stroke="#4f46e5" strokeWidth={2} dot={{ fill: '#4f46e5' }} />
-                <Line type="monotone" dataKey="utilization" stroke="#818cf8" strokeWidth={2} dot={{ fill: '#818cf8' }} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={pieData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  fill="#8884d8"
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {pieData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'white',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '8px',
-                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                  }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <div className="mt-6 pt-4 border-t border-neutral-200/50">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="text-sm">
-              <div className="text-neutral-500">Average Utilization</div>
-              <div className="font-medium mt-1">72.6%</div>
-            </div>
-            <div className="text-sm">
-              <div className="text-neutral-500">Total Capacity</div>
-              <div className="font-medium mt-1">285,000 units</div>
-            </div>
-            <div className="text-sm">
-              <div className="text-neutral-500">Inbound Orders</div>
-              <div className="font-medium mt-1">667</div>
-            </div>
-            <div className="text-sm">
-              <div className="text-neutral-500">Outbound Orders</div>
-              <div className="font-medium mt-1">716</div>
-            </div>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+    <div className="bg-white p-6 rounded-lg shadow-sm">
+      <Line data={chartData} options={options} />
+    </div>
   );
 };
 

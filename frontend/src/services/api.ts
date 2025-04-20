@@ -65,12 +65,10 @@ export const warehouseApi = {
 
 // Inventory API calls
 export const inventoryApi = {
-  // Product endpoints
-  getProducts: () => api.get('/inventory/products'),
-  getProduct: (id: string) => api.get(`/inventory/products/${id}`),
-  createProduct: (data: any) => api.post('/inventory/products', data),
-  updateProduct: (id: string, data: any) => api.put(`/inventory/products/${id}`, data),
-  deleteProduct: (id: string) => api.delete(`/inventory/products/${id}`),
+  getProducts: () => api.get('/inventory'),
+  createProduct: (product: Partial<Product>) => api.post('/inventory', product),
+  updateProduct: (id: string, product: Partial<Product>) => api.put(`/inventory/${id}`, product),
+  deleteProduct: (id: string) => api.delete(`/inventory/${id}`),
 
   // Inventory endpoints
   getInventory: () => api.get('/inventory'),
@@ -84,6 +82,18 @@ export const inventoryApi = {
   updateQuantity: (id: string, quantity: number) =>
     api.patch(`/inventory/${id}/quantity`, { quantity }),
   deleteInventoryItem: (id: string) => api.delete(`/inventory/${id}`),
+
+  // Transfer endpoints
+  createTransfer: (transferData: any) =>
+    api.post('/inventory/transfers', transferData),
+  getTransfers: () =>
+    api.get('/inventory/transfers'),
+  getTransfer: (id: string) =>
+    api.get(`/inventory/transfers/${id}`),
+  updateTransfer: (id: string, transferData: any) =>
+    api.put(`/inventory/transfers/${id}`, transferData),
+  deleteTransfer: (id: string) =>
+    api.delete(`/inventory/transfers/${id}`),
 };
 
 // Report API calls
@@ -93,6 +103,8 @@ export const reportApi = {
   getWarehouseUtilization: () => api.get('/reports/warehouse-utilization'),
   getMovementHistory: (params: { startDate?: string; endDate?: string; warehouseId?: string }) =>
     api.get('/reports/movement-history', { params }),
+  getDashboardStats: () => api.get('/reports/dashboard'),
+  getStockMovements: () => api.get('/reports/stock-movements'),
 };
 
 // Settings API calls
