@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Warehouse, Package, Users, AlertCircle, Plus, ArrowRight, 
   BarChart3, Activity, RefreshCw, TrendingUp, DollarSign, 
-  ShoppingCart, Box, Truck, Clock, Calendar, Filter
+  ShoppingCart, Box, Truck, Clock, Calendar, Filter,
+  BarChart2, LineChart, PieChart
 } from 'lucide-react';
 import { reportApi, userApi, inventoryApi } from '../services/api';
 import { socketService } from '../services/socket';
@@ -15,6 +16,34 @@ import SalesChart from '../components/dashboard/SalesChart';
 import WarehouseChart from '../components/dashboard/WarehouseChart';
 import InventoryChart from '../components/dashboard/InventoryChart';
 import { Dialog } from '@headlessui/react';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  PointElement,
+  LineElement,
+  ArcElement,
+  RadialLinearScale
+} from 'chart.js';
+import { Bar, Line, Pie, Radar } from 'react-chartjs-2';
+
+// Register ChartJS components
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  PointElement,
+  LineElement,
+  ArcElement,
+  RadialLinearScale
+);
 
 interface DashboardStats {
   users: {
@@ -111,6 +140,82 @@ const Dashboard: React.FC<DashboardProps> = ({ onRouteChange }) => {
     toWarehouse: '',
     description: ''
   });
+
+  // Chart data preparation
+  const salesChartData = {
+    labels: Array.from({ length: 12 }, (_, i) => `Month ${i + 1}`),
+    datasets: [
+      {
+        label: 'Sales',
+        data: Array.from({ length: 12 }, () => Math.floor(Math.random() * 100000)),
+        backgroundColor: 'rgba(99, 102, 241, 0.5)',
+        borderColor: 'rgb(99, 102, 241)',
+        borderWidth: 1,
+      }
+    ],
+  };
+
+  const inventoryChartData = {
+    labels: ['Electronics', 'Furniture', 'Office Supplies'],
+    datasets: [
+      {
+        label: 'Inventory Value',
+        data: [50000, 30000, 20000],
+        backgroundColor: [
+          'rgba(99, 102, 241, 0.5)',
+          'rgba(16, 185, 129, 0.5)',
+          'rgba(245, 158, 11, 0.5)',
+        ],
+        borderColor: [
+          'rgb(99, 102, 241)',
+          'rgb(16, 185, 129)',
+          'rgb(245, 158, 11)',
+        ],
+        borderWidth: 1,
+      }
+    ],
+  };
+
+  const warehousePerformanceData = {
+    labels: ['Utilization', 'Efficiency', 'Accuracy'],
+    datasets: [
+      {
+        label: 'Main Warehouse',
+        data: [85, 90, 95],
+        backgroundColor: 'rgba(99, 102, 241, 0.2)',
+        borderColor: 'rgb(99, 102, 241)',
+        borderWidth: 1,
+      },
+      {
+        label: 'Secondary Warehouse',
+        data: [75, 80, 85],
+        backgroundColor: 'rgba(16, 185, 129, 0.2)',
+        borderColor: 'rgb(16, 185, 129)',
+        borderWidth: 1,
+      }
+    ],
+  };
+
+  const userActivityData = {
+    labels: ['Active', 'Inactive', 'On Leave'],
+    datasets: [
+      {
+        label: 'User Status',
+        data: [15, 3, 2],
+        backgroundColor: [
+          'rgba(99, 102, 241, 0.5)',
+          'rgba(239, 68, 68, 0.5)',
+          'rgba(245, 158, 11, 0.5)',
+        ],
+        borderColor: [
+          'rgb(99, 102, 241)',
+          'rgb(239, 68, 68)',
+          'rgb(245, 158, 11)',
+        ],
+        borderWidth: 1,
+      }
+    ],
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -659,68 +764,97 @@ const Dashboard: React.FC<DashboardProps> = ({ onRouteChange }) => {
       </div>
       
         {/* Charts Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="bg-white p-6 rounded-lg shadow-sm">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Sales Performance Chart */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-slate-900">Sales Performance</h3>
-              <div className="flex items-center space-x-2">
-                <select
-                  value={salesFilter}
-                  onChange={(e) => setSalesFilter(e.target.value as 'all' | 'warehouse' | 'category')}
-                  className="rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                >
-                  <option value="all">All Sales</option>
-                  <option value="warehouse">By Warehouse</option>
-                  <option value="category">By Category</option>
-                </select>
-                {salesFilter === 'warehouse' && (
-                  <select
-                    value={warehouseFilter}
-                    onChange={(e) => setWarehouseFilter(e.target.value)}
-                    className="rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                  >
-                    <option value="all">All Warehouses</option>
-                    {stats.sales.byWarehouse.map((item) => (
-                      <option key={item.warehouse} value={item.warehouse}>
-                        {item.warehouse}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
+              <h3 className="text-lg font-semibold text-slate-800">Sales Performance</h3>
+              <BarChart2 className="w-5 h-5 text-indigo-600" />
             </div>
-            <div className="h-[300px]">
-              <SalesChart data={filteredSalesData} />
+            <div className="h-80">
+              <Line
+                data={salesChartData}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: {
+                    legend: {
+                      position: 'top' as const,
+                    },
+                  },
+                }}
+              />
             </div>
           </div>
-          <div className="bg-white p-6 rounded-lg shadow-sm">
+
+          {/* Inventory Distribution Chart */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-slate-900">Warehouse Distribution</h3>
-              <div className="flex items-center space-x-2">
-                <select
-                  value={warehouseFilter}
-                  onChange={(e) => setWarehouseFilter(e.target.value)}
-                  className="rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                >
-                  <option value="all">All Warehouses</option>
-                  {stats.sales.byWarehouse.map((item) => (
-                    <option key={item.warehouse} value={item.warehouse}>
-                      {item.warehouse}
-                    </option>
-                  ))}
-                </select>
-                <Button variant="outline" size="sm">
-                  <Calendar size={16} className="mr-2" />
-                  {timeRange.charAt(0).toUpperCase() + timeRange.slice(1)}
-                </Button>
-              </div>
+              <h3 className="text-lg font-semibold text-slate-800">Inventory Distribution</h3>
+              <PieChart className="w-5 h-5 text-indigo-600" />
             </div>
-            <div className="h-[300px]">
-              <WarehouseChart 
-                data={filteredWarehouseData.map(item => ({
-                  name: item.warehouse || 'Unknown',
-                  value: item.amount || 0
-                }))} 
+            <div className="h-80">
+              <Pie
+                data={inventoryChartData}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: {
+                    legend: {
+                      position: 'right' as const,
+                    },
+                  },
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Warehouse Performance Chart */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-800">Warehouse Performance</h3>
+              <TrendingUp className="w-5 h-5 text-indigo-600" />
+            </div>
+            <div className="h-80">
+              <Radar
+                data={warehousePerformanceData}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: {
+                    legend: {
+                      position: 'right' as const,
+                    },
+                  },
+                  scales: {
+                    r: {
+                      beginAtZero: true,
+                      max: 100,
+                    },
+                  },
+                }}
+              />
+            </div>
+          </div>
+
+          {/* User Activity Chart */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-800">User Activity</h3>
+              <LineChart className="w-5 h-5 text-indigo-600" />
+            </div>
+            <div className="h-80">
+              <Bar
+                data={userActivityData}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: {
+                    legend: {
+                      position: 'top' as const,
+                    },
+                  },
+                }}
               />
             </div>
           </div>

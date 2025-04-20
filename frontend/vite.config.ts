@@ -7,6 +7,13 @@ export default defineConfig({
   plugins: [react()],
   optimizeDeps: {
     exclude: ['lucide-react'],
+    force: true
+  },
+  server: {
+    hmr: true,
+    watch: {
+      usePolling: true
+    }
   },
   resolve: {
     alias: {

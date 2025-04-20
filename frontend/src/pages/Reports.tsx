@@ -15,8 +15,24 @@ import {
   ChevronDown,
   AlertCircle,
   Clock,
-  TrendingUp
+  TrendingUp,
+  X,
+  FileBarChart
 } from 'lucide-react';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  PointElement,
+  LineElement,
+  ArcElement,
+  RadialLinearScale
+} from 'chart.js';
+import { Bar, Line, Pie, Radar } from 'react-chartjs-2';
 import Card, { CardHeader, CardContent } from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import { Table, TableRow } from '../components/ui/Table';
@@ -54,6 +70,41 @@ const mockInventory: InventoryItem[] = [
   { name: 'Product C', category: 'Office Supplies', quantity: 200, min_quantity: 100 },
 ];
 
+interface NewReportForm {
+  name: string;
+  type: 'financial' | 'inventory' | 'performance' | 'security';
+  schedule: 'Daily' | 'Weekly' | 'Monthly';
+  format: 'excel' | 'csv' | 'json';
+}
+
+interface MasterReportData {
+  summary: {
+    totalUsers: number;
+    totalWarehouses: number;
+    totalRevenue: number;
+    totalInventory: number;
+  };
+  users: any[];
+  warehouses: any[];
+  financial: any[];
+  inventory: any[];
+  performance: any[];
+}
+
+// Register ChartJS components
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  PointElement,
+  LineElement,
+  ArcElement,
+  RadialLinearScale
+);
+
 const Reports: React.FC = () => {
   const [selectedReport, setSelectedReport] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -61,6 +112,15 @@ const Reports: React.FC = () => {
   const [reports, setReports] = useState<Report[]>([]);
   const [isDownloading, setIsDownloading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isNewReportOpen, setIsNewReportOpen] = useState(false);
+  const [newReport, setNewReport] = useState<NewReportForm>({
+    name: '',
+    type: 'inventory',
+    schedule: 'Daily',
+    format: 'excel'
+  });
+  const [isMasterReportOpen, setIsMasterReportOpen] = useState(false);
+  const [masterReportFormat, setMasterReportFormat] = useState<'excel' | 'csv' | 'json'>('excel');
   
   useEffect(() => {
     // Generate dynamic reports based on data
@@ -212,24 +272,274 @@ const Reports: React.FC = () => {
     }
   };
 
+  const handleCreateReport = () => {
+    if (!newReport.name.trim()) {
+      setError('Report name is required');
+      return;
+    }
+
+    const newReportData: Report = {
+      id: Date.now().toString(),
+      name: newReport.name,
+      type: newReport.type,
+      lastRun: new Date().toISOString(),
+      schedule: newReport.schedule,
+      format: newReport.format,
+      data: generateReportData(newReport.type)
+    };
+
+    setReports([...reports, newReportData]);
+    setIsNewReportOpen(false);
+    setNewReport({
+      name: '',
+      type: 'inventory',
+      schedule: 'Daily',
+      format: 'excel'
+    });
+  };
+
+  const generateReportData = (type: string) => {
+    switch (type) {
+      case 'financial':
+        return Array.from({ length: 5 }, (_, i) => ({
+          month: `Month ${i + 1}`,
+          revenue: Math.floor(Math.random() * 100000),
+          expenses: Math.floor(Math.random() * 50000),
+          profit: Math.floor(Math.random() * 50000)
+        }));
+      case 'inventory':
+        return mockInventory;
+      case 'performance':
+        return warehouses.map(wh => ({
+          name: wh.name,
+          location: wh.location,
+          utilization: Math.floor(Math.random() * 100),
+          efficiency: Math.floor(Math.random() * 100),
+          accuracy: Math.floor(Math.random() * 100)
+        }));
+      case 'security':
+        return users.map(user => ({
+          name: user.username,
+          role: user.role,
+          lastLogin: new Date().toISOString(),
+          status: 'Active'
+        }));
+      default:
+        return [];
+    }
+  };
+
+  const generateMasterReport = () => {
+    const masterReport: MasterReportData = {
+      summary: {
+        totalUsers: users.length,
+        totalWarehouses: warehouses.length,
+        totalRevenue: warehouses.reduce((sum, wh) => sum + (Math.random() * 100000), 0),
+        totalInventory: mockInventory.reduce((sum, item) => sum + item.quantity, 0)
+      },
+      users: users.map(user => ({
+        username: user.username,
+        role: user.role,
+        lastLogin: new Date().toISOString(),
+        status: 'Active'
+      })),
+      warehouses: warehouses.map(wh => ({
+        name: wh.name,
+        location: wh.location,
+        capacity: Math.floor(Math.random() * 1000),
+        currentUtilization: Math.floor(Math.random() * 100)
+      })),
+      financial: Array.from({ length: 12 }, (_, i) => ({
+        month: `Month ${i + 1}`,
+        revenue: Math.floor(Math.random() * 100000),
+        expenses: Math.floor(Math.random() * 50000),
+        profit: Math.floor(Math.random() * 50000)
+      })),
+      inventory: mockInventory,
+      performance: warehouses.map(wh => ({
+        name: wh.name,
+        location: wh.location,
+        utilization: Math.floor(Math.random() * 100),
+        efficiency: Math.floor(Math.random() * 100),
+        accuracy: Math.floor(Math.random() * 100)
+      }))
+    };
+
+    return masterReport;
+  };
+
+  const handleMasterReportDownload = () => {
+    const masterReport = generateMasterReport();
+    let content: string;
+    let mimeType: string;
+    let filename: string;
+
+    switch (masterReportFormat) {
+      case 'excel':
+      case 'csv':
+        // For Excel/CSV, we'll create a structured format
+        const summaryHeaders = Object.keys(masterReport.summary).join(',');
+        const summaryRow = Object.values(masterReport.summary).join(',');
+        
+        const usersHeaders = Object.keys(masterReport.users[0]).join(',');
+        const usersRows = masterReport.users.map(user => 
+          Object.values(user).map(value => 
+            typeof value === 'string' && value.includes(',') ? `"${value}"` : value
+          ).join(',')
+        );
+
+        const warehousesHeaders = Object.keys(masterReport.warehouses[0]).join(',');
+        const warehousesRows = masterReport.warehouses.map(wh => 
+          Object.values(wh).map(value => 
+            typeof value === 'string' && value.includes(',') ? `"${value}"` : value
+          ).join(',')
+        );
+
+        content = [
+          'SUMMARY',
+          summaryHeaders,
+          summaryRow,
+          '\nUSERS',
+          usersHeaders,
+          ...usersRows,
+          '\nWAREHOUSES',
+          warehousesHeaders,
+          ...warehousesRows,
+          '\nFINANCIAL',
+          'month,revenue,expenses,profit',
+          ...masterReport.financial.map(f => `${f.month},${f.revenue},${f.expenses},${f.profit}`),
+          '\nINVENTORY',
+          'name,category,quantity,min_quantity',
+          ...masterReport.inventory.map(i => `${i.name},${i.category},${i.quantity},${i.min_quantity}`),
+          '\nPERFORMANCE',
+          'name,location,utilization,efficiency,accuracy',
+          ...masterReport.performance.map(p => `${p.name},${p.location},${p.utilization},${p.efficiency},${p.accuracy}`)
+        ].join('\n');
+
+        mimeType = 'text/csv';
+        filename = 'master_report.csv';
+        break;
+
+      case 'json':
+        content = JSON.stringify(masterReport, null, 2);
+        mimeType = 'application/json';
+        filename = 'master_report.json';
+        break;
+    }
+
+    // Create and trigger download
+    const blob = new Blob([content], { type: mimeType });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+
+    setIsMasterReportOpen(false);
+  };
+
+  // Chart data preparation
+  const financialChartData = {
+    labels: Array.from({ length: 12 }, (_, i) => `Month ${i + 1}`),
+    datasets: [
+      {
+        label: 'Revenue',
+        data: Array.from({ length: 12 }, () => Math.floor(Math.random() * 100000)),
+        backgroundColor: 'rgba(99, 102, 241, 0.5)',
+        borderColor: 'rgb(99, 102, 241)',
+        borderWidth: 1,
+      },
+      {
+        label: 'Expenses',
+        data: Array.from({ length: 12 }, () => Math.floor(Math.random() * 50000)),
+        backgroundColor: 'rgba(239, 68, 68, 0.5)',
+        borderColor: 'rgb(239, 68, 68)',
+        borderWidth: 1,
+      }
+    ],
+  };
+
+  const inventoryChartData = {
+    labels: mockInventory.map(item => item.name),
+    datasets: [
+      {
+        label: 'Current Quantity',
+        data: mockInventory.map(item => item.quantity),
+        backgroundColor: [
+          'rgba(99, 102, 241, 0.5)',
+          'rgba(16, 185, 129, 0.5)',
+          'rgba(245, 158, 11, 0.5)',
+        ],
+        borderColor: [
+          'rgb(99, 102, 241)',
+          'rgb(16, 185, 129)',
+          'rgb(245, 158, 11)',
+        ],
+        borderWidth: 1,
+      }
+    ],
+  };
+
+  const performanceChartData = {
+    labels: ['Utilization', 'Efficiency', 'Accuracy'],
+    datasets: warehouses.map((wh, index) => ({
+      label: wh.name,
+      data: [
+        Math.floor(Math.random() * 100),
+        Math.floor(Math.random() * 100),
+        Math.floor(Math.random() * 100)
+      ],
+      backgroundColor: `rgba(${index * 50}, ${index * 100}, ${index * 150}, 0.2)`,
+      borderColor: `rgb(${index * 50}, ${index * 100}, ${index * 150})`,
+      borderWidth: 1,
+    })),
+  };
+
+  const userActivityChartData = {
+    labels: users.map(user => user.username),
+    datasets: [
+      {
+        label: 'Activity Score',
+        data: users.map(() => Math.floor(Math.random() * 100)),
+        backgroundColor: 'rgba(139, 92, 246, 0.5)',
+        borderColor: 'rgb(139, 92, 246)',
+        borderWidth: 1,
+      }
+    ],
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 p-6">
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Header Section */}
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm">
-        <div>
+          <div>
             <h1 className="text-3xl font-bold text-slate-800">Reports & Analytics</h1>
             <p className="text-slate-500 mt-2">Generate and manage reports for your organization</p>
-        </div>
+          </div>
           
-        <Button 
-          variant="primary"
-            leftIcon={<Plus size={18} />}
-            className="w-full lg:w-auto bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800"
-        >
-          New Report
-        </Button>
-      </div>
+          <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
+            <Button 
+              variant="primary"
+              leftIcon={<FileBarChart size={18} />}
+              className="w-full sm:w-auto bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800"
+              onClick={() => setIsMasterReportOpen(true)}
+            >
+              Master Report
+            </Button>
+            <Button 
+              variant="primary"
+              leftIcon={<Plus size={18} />}
+              className="w-full sm:w-auto bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800"
+              onClick={() => setIsNewReportOpen(true)}
+            >
+              New Report
+            </Button>
+          </div>
+        </div>
 
         {/* Stats Section */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -284,6 +594,103 @@ const Reports: React.FC = () => {
               <div className="p-3 bg-red-50 rounded-xl">
                 <Clock className="w-8 h-8 text-red-600" />
               </div>
+            </div>
+          </div>
+        </div>
+        
+        {/* Charts Section */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Financial Performance Chart */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-800">Financial Performance</h3>
+              <BarChart2 className="w-5 h-5 text-indigo-600" />
+            </div>
+            <div className="h-80">
+              <Line
+                data={financialChartData}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: {
+                    legend: {
+                      position: 'top' as const,
+                    },
+                  },
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Inventory Status Chart */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-800">Inventory Status</h3>
+              <PieChart className="w-5 h-5 text-indigo-600" />
+            </div>
+            <div className="h-80">
+              <Pie
+                data={inventoryChartData}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: {
+                    legend: {
+                      position: 'right' as const,
+                    },
+                  },
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Warehouse Performance Chart */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-800">Warehouse Performance</h3>
+              <TrendingUp className="w-5 h-5 text-indigo-600" />
+            </div>
+            <div className="h-80">
+              <Radar
+                data={performanceChartData}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: {
+                    legend: {
+                      position: 'right' as const,
+                    },
+                  },
+                  scales: {
+                    r: {
+                      beginAtZero: true,
+                      max: 100,
+                    },
+                  },
+                }}
+              />
+            </div>
+          </div>
+
+          {/* User Activity Chart */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-800">User Activity</h3>
+              <LineChart className="w-5 h-5 text-indigo-600" />
+            </div>
+            <div className="h-80">
+              <Bar
+                data={userActivityChartData}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: {
+                    legend: {
+                      position: 'top' as const,
+                    },
+                  },
+                }}
+              />
             </div>
           </div>
         </div>
@@ -410,6 +817,148 @@ const Reports: React.FC = () => {
         </div>
           </Dialog>
         )}
+
+        {/* New Report Dialog */}
+        <Dialog 
+          isOpen={isNewReportOpen} 
+          onClose={() => setIsNewReportOpen(false)}
+          title="Create New Report"
+        >
+          <div className="space-y-6">
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Report Name
+                </label>
+                <input
+                  type="text"
+                  value={newReport.name}
+                  onChange={(e) => setNewReport({ ...newReport, name: e.target.value })}
+                  className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder="Enter report name"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Report Type
+                </label>
+                <select
+                  value={newReport.type}
+                  onChange={(e) => setNewReport({ ...newReport, type: e.target.value as any })}
+                  className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="financial">Financial</option>
+                  <option value="inventory">Inventory</option>
+                  <option value="performance">Performance</option>
+                  <option value="security">Security</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Schedule
+                </label>
+                <select
+                  value={newReport.schedule}
+                  onChange={(e) => setNewReport({ ...newReport, schedule: e.target.value as any })}
+                  className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="Daily">Daily</option>
+                  <option value="Weekly">Weekly</option>
+                  <option value="Monthly">Monthly</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Format
+                </label>
+                <select
+                  value={newReport.format}
+                  onChange={(e) => setNewReport({ ...newReport, format: e.target.value as any })}
+                  className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="excel">Excel</option>
+                  <option value="csv">CSV</option>
+                  <option value="json">JSON</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="secondary"
+                onClick={() => setIsNewReportOpen(false)}
+                className="px-4 py-2"
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleCreateReport}
+                className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800"
+              >
+                Create Report
+              </Button>
+            </div>
+          </div>
+        </Dialog>
+
+        {/* Master Report Dialog */}
+        <Dialog 
+          isOpen={isMasterReportOpen} 
+          onClose={() => setIsMasterReportOpen(false)}
+          title="Generate Master Report"
+        >
+          <div className="space-y-6">
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Report Format
+                </label>
+                <select
+                  value={masterReportFormat}
+                  onChange={(e) => setMasterReportFormat(e.target.value as any)}
+                  className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="excel">Excel</option>
+                  <option value="csv">CSV</option>
+                  <option value="json">JSON</option>
+                </select>
+              </div>
+
+              <div className="bg-slate-50 p-4 rounded-lg">
+                <h3 className="text-sm font-medium text-slate-700 mb-2">Report Contents:</h3>
+                <ul className="space-y-1 text-sm text-slate-600">
+                  <li>• Summary Statistics</li>
+                  <li>• User Information</li>
+                  <li>• Warehouse Details</li>
+                  <li>• Financial Data</li>
+                  <li>• Inventory Status</li>
+                  <li>• Performance Metrics</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="secondary"
+                onClick={() => setIsMasterReportOpen(false)}
+                className="px-4 py-2"
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleMasterReportDownload}
+                className="px-4 py-2 bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800"
+              >
+                Generate Report
+              </Button>
+            </div>
+          </div>
+        </Dialog>
       </div>
     </div>
   );

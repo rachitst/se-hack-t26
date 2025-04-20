@@ -5,7 +5,6 @@ import { socketService } from '../services/socket';
 import Button from '../components/ui/Button';
 import Dialog from '../components/ui/Dialog';
 import Badge from '../components/ui/Badge';
-import { toast } from 'react-hot-toast';
 import { User } from '../types/user';
 import { useDispatch, useSelector } from 'react-redux';
 import { addUser, updateUser, deleteUser, setUsers, setLoading, setError } from '../redux/usersSlice';
@@ -26,6 +25,7 @@ const UsersPage: React.FC = () => {
     email: '',
     role: 'user',
     warehouse_id: undefined,
+    password: '',
   });
   const [isConnected, setIsConnected] = useState(false);
   const [socketError, setSocketError] = useState<string | null>(null);
@@ -46,26 +46,20 @@ const UsersPage: React.FC = () => {
 
         // Handle warehouses response
         if (warehousesResponse.data.success) {
-          console.log('Warehouses fetched:', warehousesResponse.data.data);
           setWarehouses(warehousesResponse.data.data || []);
         } else {
-          console.error('Failed to fetch warehouses:', warehousesResponse.data.message);
-          toast.error('Failed to fetch warehouses');
+          dispatch(setError('Failed to fetch warehouses'));
         }
 
         // Handle users response
         if (usersResponse.data.success) {
-          console.log('Users fetched:', usersResponse.data.data);
           dispatch(setUsers(usersResponse.data.data || []));
         } else {
-          console.error('Failed to fetch users:', usersResponse.data.message);
           dispatch(setError(usersResponse.data.message || 'Failed to fetch users'));
-          toast.error(usersResponse.data.message || 'Failed to fetch users');
         }
       } catch (err: any) {
         console.error('Error fetching initial data:', err);
         dispatch(setError(err.message || 'Failed to fetch data'));
-        toast.error('Failed to fetch data');
       } finally {
         dispatch(setLoading(false));
       }
@@ -97,17 +91,14 @@ const UsersPage: React.FC = () => {
         // User event listeners
         socketService.on('user_created', (newUser: User) => {
           dispatch(addUser(newUser));
-          toast.success('User created successfully');
         });
 
         socketService.on('user_updated', (updatedUser: User) => {
           dispatch(updateUser(updatedUser));
-          toast.success('User updated successfully');
         });
 
         socketService.on('user_deleted', (userId: string) => {
           dispatch(deleteUser(userId));
-          toast.success('User deleted successfully');
         });
 
         return () => {
@@ -133,21 +124,26 @@ const UsersPage: React.FC = () => {
 
   // Handlers
   const handleAddUser = async () => {
-    if (!newUser.username || !newUser.email || !newUser.role) {
-      toast.error('Please fill in all required fields');
+    if (!newUser.username || !newUser.email || !newUser.role || !newUser.password) {
+      dispatch(setError('Please fill in all required fields'));
       return;
     }
 
     try {
       dispatch(setLoading(true));
-      const response = await userApi.register(newUser);
+      const response = await userApi.register({
+        username: newUser.username,
+        email: newUser.email,
+        role: newUser.role,
+        password: newUser.password,
+        warehouse_id: newUser.warehouse_id
+      });
       
       if (response.data.success) {
         if (isConnected) {
           socketService.emit('create_user', response.data.data);
         } else {
           dispatch(addUser(response.data.data));
-          toast.success('User added successfully');
         }
         setIsAddUserOpen(false);
         setNewUser({
@@ -155,11 +151,19 @@ const UsersPage: React.FC = () => {
           email: '',
           role: 'user',
           warehouse_id: undefined,
+          password: '',
         });
+      } else {
+        dispatch(setError(response.data.message || 'Failed to add user'));
       }
     } catch (err: any) {
       console.error('Error adding user:', err);
-      toast.error(err.response?.data?.message || 'Failed to add user');
+      if (err.response?.data?.errors) {
+        const errorMessages = err.response.data.errors.map((error: any) => error.message).join(', ');
+        dispatch(setError(errorMessages));
+      } else {
+        dispatch(setError(err.response?.data?.message || 'Failed to add user'));
+      }
     } finally {
       dispatch(setLoading(false));
     }
@@ -177,14 +181,15 @@ const UsersPage: React.FC = () => {
           socketService.emit('update_user', response.data.data);
         } else {
           dispatch(updateUser(response.data.data));
-          toast.success('User updated successfully');
         }
         setIsEditUserOpen(false);
         setSelectedUser(null);
+      } else {
+        dispatch(setError(response.data.message || 'Failed to update user'));
       }
     } catch (err: any) {
       console.error('Error updating user:', err);
-      toast.error(err.response?.data?.message || 'Failed to update user');
+      dispatch(setError(err.response?.data?.message || 'Failed to update user'));
     } finally {
       dispatch(setLoading(false));
     }
@@ -202,14 +207,15 @@ const UsersPage: React.FC = () => {
           socketService.emit('delete_user', selectedUser._id);
         } else {
           dispatch(deleteUser(selectedUser._id));
-          toast.success('User deleted successfully');
         }
         setIsDeleteDialogOpen(false);
         setSelectedUser(null);
+      } else {
+        dispatch(setError(response.data.message || 'Failed to delete user'));
       }
     } catch (err: any) {
       console.error('Error deleting user:', err);
-      toast.error(err.response?.data?.message || 'Failed to delete user');
+      dispatch(setError(err.response?.data?.message || 'Failed to delete user'));
     } finally {
       dispatch(setLoading(false));
     }
@@ -287,13 +293,6 @@ const UsersPage: React.FC = () => {
             <div>
               <h1 className="text-3xl font-bold text-slate-800">User Management</h1>
               <p className="text-slate-500 mt-2">Manage and monitor user access and permissions</p>
-            </div>
-            <div className="flex items-center gap-2">
-              {isConnected ? (
-                <Wifi className="w-5 h-5 text-green-500" />
-              ) : (
-                <WifiOff className="w-5 h-5 text-red-500" />
-              )}
             </div>
           </div>
           <Button 
@@ -476,6 +475,7 @@ const UsersPage: React.FC = () => {
               email: '',
               role: 'user',
               warehouse_id: undefined,
+              password: '',
             });
           }}
           title="Add New User"
@@ -503,6 +503,16 @@ const UsersPage: React.FC = () => {
                   className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   value={newUser.email}
                   onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
+                <input
+                  type="password"
+                  required
+                  className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  value={newUser.password}
+                  onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
                 />
               </div>
               <div>
